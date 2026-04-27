@@ -1,0 +1,8 @@
+name: bsw_ontario
+bbox:
+  north: 54.88689352
+  west: -95.15367601
+  south: 48.0566673
+  east: -85.0234456
+years: [1980, 2010]
+output_dir: data/era5/bsw_ontario
