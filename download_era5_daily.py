@@ -14,10 +14,10 @@ def is_valid_nc(fpath, min_bytes=50_000):
 
 def download_minmax(c, cfg, year, month):
     """Download daily T_max and T_min for one year-month"""
-    out_dir = os.path.join(cfg['output_dir'], 'daily_minmax')
+    out_dir = os.path.join(cfg['output_dir'], 'daily_min')# switch to daily_min or daily max
     os.makedirs(out_dir, exist_ok=True)
 
-    fname = os.path.join(out_dir, f'era5_minmax_{year}_{month:02d}.nc')
+    fname = os.path.join(out_dir, f'era5_min_{year}_{month:02d}.nc') # set to min or max based on temp variable
 
     if is_valid_nc(fname):
         print(f'  skip {year}-{month:02d} (exists)')
@@ -26,7 +26,7 @@ def download_minmax(c, cfg, year, month):
     n_days = calendar.monthrange(year, month)[1]
     days   = [f'{d:02d}' for d in range(1, n_days + 1)]
     b      = cfg['bbox']
-    tmp_path = os.path.join(out_dir, f'era5_minmax_{year}_{month:02d}.tmp')
+    tmp_path = os.path.join(out_dir, f'era5_min_{year}_{month:02d}.tmp') # specify min or max in the name
 
     print(f'  downloading T_max/T_min {year}-{month:02d} ({n_days} days)...')
     c.retrieve(
@@ -36,7 +36,7 @@ def download_minmax(c, cfg, year, month):
             'daily_statistic': 'daily_mean',   # required field
             'time_zone':       'utc+00:00',    # required field
             'variable': [
-                'maximum_2m_temperature_since_previous_post_processing',
+               # 'maximum_2m_temperature_since_previous_post_processing',   # select min or max by commenting out
                 'minimum_2m_temperature_since_previous_post_processing',
             ],
             'year':   [str(year)],
