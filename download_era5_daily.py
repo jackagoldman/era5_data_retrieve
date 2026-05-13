@@ -3,8 +3,6 @@ import yaml
 import argparse
 import os
 import calendar
-import zipfile
-import shutil
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 
@@ -12,61 +10,62 @@ def is_valid_nc(fpath, min_bytes=50_000):
     return os.path.exists(fpath) and os.path.getsize(fpath) > min_bytes
 
 
-def download_minmax(c, cfg, year, month):
-    """Download daily T_max and T_min for one year-month"""
-    out_dir = os.path.join(cfg['output_dir'], 'daily_max')# switch to daily_min or daily max
+def download_tmax(c, cfg, year, month):
+    out_dir = os.path.join(cfg['output_dir'], 'daily_tmax')
     os.makedirs(out_dir, exist_ok=True)
-
-    fname = os.path.join(out_dir, f'era5_minmax_{year}_{month:02d}.nc') # set to min or max based on temp variable
-
+    fname = os.path.join(out_dir, f'era5_tmax_{year}_{month:02d}.nc')
     if is_valid_nc(fname):
-        print(f'  skip {year}-{month:02d} (exists)')
+        print(f'  skip tmax {year}-{month:02d}')
         return
-
     n_days = calendar.monthrange(year, month)[1]
     days   = [f'{d:02d}' for d in range(1, n_days + 1)]
     b      = cfg['bbox']
-    tmp_path = os.path.join(out_dir, f'era5_minmax_{year}_{month:02d}.tmp') # specify min or max in the name
-
-    print(f'  downloading T_max/T_min {year}-{month:02d} ({n_days} days)...')
+    print(f'  downloading tmax {year}-{month:02d}...')
     c.retrieve(
         'derived-era5-single-levels-daily-statistics',
         {
             'product_type':    'reanalysis',
-            'daily_statistic': 'daily_mean',   # required field
-            'time_zone':       'utc+00:00',    # required field
-            'variable': [
-                'maximum_2m_temperature_since_previous_post_processing',   # select min or max by commenting out
-               # 'minimum_2m_temperature_since_previous_post_processing',
-            ],
-            'year':   [str(year)],
-            'month':  [f'{month:02d}'],
-            'day':    days,
-            'area':   [b['north'], b['west'], b['south'], b['east']],
+            'variable':        ['maximum_2m_temperature_since_previous_post_processing'],
+            'daily_statistic': 'daily_maximum',
+            'time_zone':       'utc+00:00',
+            'year':            [str(year)],
+            'month':           [f'{month:02d}'],
+            'day':             days,
+            'area':            [b['north'], b['west'], b['south'], b['east']],
+            'data_format':     'netcdf',
         },
-        tmp_path
+        fname
     )
+    print(f'  done tmax {year}-{month:02d}')
 
-    # Handle whatever format CDS returns
-    with open(tmp_path, 'rb') as f:
-        header = f.read(4)
 
-    if header[:4] == b'PK\x03\x04':
-        print(f'  got zip, extracting...')
-        with zipfile.ZipFile(tmp_path, 'r') as z:
-            nc_files = [n for n in z.namelist() if n.endswith('.nc')]
-            if nc_files:
-                with z.open(nc_files[0]) as src, open(fname, 'wb') as dst:
-                    shutil.copyfileobj(src, dst)
-            else:
-                print(f'  WARNING: no .nc in zip, contents: {z.namelist()}')
-        os.remove(tmp_path)
-    elif header[:4] == b'\x89HDF':
-        os.rename(tmp_path, fname)
-    else:
-        print(f'  WARNING: unknown format header={header}')
-
-    print(f'  done {year}-{month:02d}')
+def download_tmin(c, cfg, year, month):
+    out_dir = os.path.join(cfg['output_dir'], 'daily_tmin')
+    os.makedirs(out_dir, exist_ok=True)
+    fname = os.path.join(out_dir, f'era5_tmin_{year}_{month:02d}.nc')
+    if is_valid_nc(fname):
+        print(f'  skip tmin {year}-{month:02d}')
+        return
+    n_days = calendar.monthrange(year, month)[1]
+    days   = [f'{d:02d}' for d in range(1, n_days + 1)]
+    b      = cfg['bbox']
+    print(f'  downloading tmin {year}-{month:02d}...')
+    c.retrieve(
+        'derived-era5-single-levels-daily-statistics',
+        {
+            'product_type':    'reanalysis',
+            'variable':        ['minimum_2m_temperature_since_previous_post_processing'],
+            'daily_statistic': 'daily_minimum',
+            'time_zone':       'utc+00:00',
+            'year':            [str(year)],
+            'month':           [f'{month:02d}'],
+            'day':             days,
+            'area':            [b['north'], b['west'], b['south'], b['east']],
+            'data_format':     'netcdf',
+        },
+        fname
+    )
+    print(f'  done tmin {year}-{month:02d}')
 
 
 def main():
@@ -83,15 +82,18 @@ def main():
 
     combos = [(y, m) for y in range(y_start, y_end + 1) for m in range(1, 13)]
 
+    # Download tmax and tmin in parallel — 5 workers across both
+    tasks = [(y, m, 'max') for y, m in combos] + [(y, m, 'min') for y, m in combos]
+
     with ThreadPoolExecutor(max_workers=args.workers) as ex:
         futures = {
-            ex.submit(download_minmax, c, cfg, y, m): (y, m)
-            for y, m in combos
+            ex.submit(download_tmax if t == 'max' else download_tmin, c, cfg, y, m): (y, m, t)
+            for y, m, t in tasks
         }
         for fut in as_completed(futures):
-            y, m = futures[fut]
+            y, m, t = futures[fut]
             if fut.exception():
-                print(f'  ERROR {y}-{m:02d}: {fut.exception()}')
+                print(f'  ERROR {t} {y}-{m:02d}: {fut.exception()}')
 
 
 if __name__ == '__main__':
